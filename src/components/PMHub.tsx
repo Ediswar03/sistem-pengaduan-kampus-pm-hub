@@ -1,0 +1,1042 @@
+import React, { useState, useEffect } from "react";
+import { 
+  BookOpen, Clipboard, Layers, Calendar, Users, DollarSign, 
+  Trello, ShieldAlert, CheckSquare, Sparkles, FileDown, 
+  Printer, Edit3, ArrowRight, ArrowLeft, Check, RefreshCw, Loader2
+} from "lucide-react";
+import { PMChapter, TrelloCard, ProjectRisk, GanttTask, ProjectMember, BudgetItem } from "../types";
+import { initialChapters, initialTrelloCards, initialGanttTasks, projectMembers, initialBudget, projectRisks, projectTests } from "../data";
+
+interface PMHubProps {
+  onAddLog: (action: string) => void;
+}
+
+export default function PMHub({ onAddLog }: PMHubProps) {
+  // 1. Report Customization State
+  const [univName, setUnivName] = useState("Universitas Dira");
+  const [studentName, setStudentName] = useState("Rian Hidayat");
+  const [studentNIM, setStudentNIM] = useState("411231179");
+  const [studentClass, setStudentClass] = useState("Manajemen Proyek Perangkat Lunak - Kelas Sore");
+  
+  // State for document chapters
+  const [chapters, setChapters] = useState<PMChapter[]>(initialChapters);
+  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
+
+  // States for interactive tools
+  const [trelloCards, setTrelloCards] = useState<TrelloCard[]>(() => {
+    try {
+      const saved = localStorage.getItem("sipelak_trello");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to parse trello from localStorage:", e);
+    }
+    return initialTrelloCards;
+  });
+
+  const [ganttTasks, setGanttTasks] = useState<GanttTask[]>(() => {
+    try {
+      const saved = localStorage.getItem("sipelak_gantt");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to parse gantt from localStorage:", e);
+    }
+    return initialGanttTasks;
+  });
+
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("sipelak_budget");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to parse budget from localStorage:", e);
+    }
+    return initialBudget;
+  });
+
+  const [risks, setRisks] = useState<ProjectRisk[]>(() => {
+    try {
+      const saved = localStorage.getItem("sipelak_risks");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to parse risks from localStorage:", e);
+    }
+    return projectRisks;
+  });
+
+  const [testSuite, setTestSuite] = useState(projectTests.map(t => ({ ...t, status: "Belum Diuji" as "Belum Diuji" | "PASS" | "FAIL" })));
+
+  // AI Generation States
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [generatingSection, setGeneratingSection] = useState(false);
+
+  // Synchronize storage
+  useEffect(() => {
+    localStorage.setItem("sipelak_trello", JSON.stringify(trelloCards));
+  }, [trelloCards]);
+
+  useEffect(() => {
+    localStorage.setItem("sipelak_gantt", JSON.stringify(ganttTasks));
+  }, [ganttTasks]);
+
+  useEffect(() => {
+    localStorage.setItem("sipelak_budget", JSON.stringify(budgetItems));
+  }, [budgetItems]);
+
+  useEffect(() => {
+    localStorage.setItem("sipelak_risks", JSON.stringify(risks));
+  }, [risks]);
+
+  // Handle local text replacement for university name across standard chapters
+  const getCustomizedContent = (content: string) => {
+    return content.replace(/Universitas/g, univName);
+  };
+
+  // AI Generation with Gemini
+  const handleAICustomize = async () => {
+    const currentChapter = chapters[activeChapterIndex];
+    setGeneratingSection(true);
+    onAddLog(`Mahasiswa menginisiasi kustomisasi AI untuk ${currentChapter.sectionCode} - "${currentChapter.title}"`);
+
+    try {
+      const res = await fetch("/api/generate-docs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: `${currentChapter.sectionCode}: ${currentChapter.title}`,
+          university: univName,
+          customPrompt: customPrompt || "Buat deskripsi yang komprehensif, akademis, menggunakan bahasa Indonesia yang santun dan rapi."
+        })
+      });
+
+      const data = await res.json();
+      if (data.text) {
+        setChapters(prev => prev.map((ch, idx) => {
+          if (idx === activeChapterIndex) {
+            return { ...ch, content: data.text };
+          }
+          return ch;
+        }));
+        onAddLog(`Sukses meregenerasi konten ${currentChapter.sectionCode} dengan Gemini AI`);
+        setCustomPrompt("");
+      } else {
+        alert("Gagal meregenerasi teks. Harap periksa koneksi atau coba kembali.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan teknis saat memanggil Gemini API.");
+    } finally {
+      setGeneratingSection(false);
+    }
+  };
+
+  // Trello Actions
+  const handleMoveTrelloCard = (cardId: string, direction: "next" | "prev") => {
+    const statusOrder: TrelloCard["status"][] = ["Backlog", "To Do", "In Progress", "Review/Testing", "Done"];
+    setTrelloCards(prev => prev.map(card => {
+      if (card.id === cardId) {
+        const currIdx = statusOrder.indexOf(card.status);
+        let nextIdx = currIdx;
+        if (direction === "next" && currIdx < statusOrder.length - 1) {
+          nextIdx = currIdx + 1;
+        } else if (direction === "prev" && currIdx > 0) {
+          nextIdx = currIdx - 1;
+        }
+        return { ...card, status: statusOrder[nextIdx] };
+      }
+      return card;
+    }));
+    onAddLog(`Kartu Trello ${cardId} dipindahkan ke ${direction === "next" ? "kanan" : "kiri"}`);
+  };
+
+  const handleToggleTrelloCheck = (cardId: string, checkIndex: number) => {
+    setTrelloCards(prev => prev.map(card => {
+      if (card.id === cardId) {
+        const updatedChecklist = [...card.checklist];
+        updatedChecklist[checkIndex] = {
+          ...updatedChecklist[checkIndex],
+          done: !updatedChecklist[checkIndex].done
+        };
+        return { ...card, checklist: updatedChecklist };
+      }
+      return card;
+    }));
+  };
+
+  // Gantt Progress Adjustment
+  const handleGanttProgressChange = (taskId: string, newProgress: number) => {
+    setGanttTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        return { ...t, progress: newProgress };
+      }
+      return t;
+    }));
+  };
+
+  // Budget Adjustments
+  const handleBudgetCostChange = (itemId: number, newCost: number) => {
+    setBudgetItems(prev => prev.map(item => {
+      if (item.id === itemId) {
+        return { ...item, cost: Math.max(0, newCost) };
+      }
+      return item;
+    }));
+  };
+
+  // Risk adjustments
+  const handleRiskChange = (id: number, field: keyof ProjectRisk, val: string) => {
+    setRisks(prev => prev.map(r => {
+      if (r.id === id) {
+        return { ...r, [field]: val };
+      }
+      return r;
+    }));
+  };
+
+  // Recalculate total budget
+  const totalBudgetCost = budgetItems.reduce((acc, item) => acc + item.cost, 0);
+
+  // Trigger browser print of the full UAS report!
+  const handlePrintReport = () => {
+    onAddLog(`Mahasiswa mengunduh/mencetak dokumen Laporan Akhir UAS.`);
+    
+    // Create an elegant printable window
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Harap izinkan popup di browser Anda untuk mengunduh laporan.");
+      return;
+    }
+
+    const compiledChaptersHTML = chapters.map((ch) => {
+      // Inline HTML renderings for interactive components for clean prints
+      let componentHTML = "";
+      if (ch.interactiveComponent === "charter") {
+        componentHTML = `
+          <div style="border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-top: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px; font-weight: bold; width: 30%;">Nama Proyek</td><td style="padding: 8px;">Sistem Informasi Pengaduan Layanan Kampus</td></tr>
+              <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px; font-weight: bold;">Tujuan Proyek</td><td style="padding: 8px;">Menyediakan sistem pengaduan kampus yang terpusat, transparan, dan mudah dipantau oleh seluruh civitas akademika ${univName}.</td></tr>
+              <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px; font-weight: bold;">Durasi Proyek</td><td style="padding: 8px;">8 Minggu</td></tr>
+              <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px; font-weight: bold;">Anggaran Total</td><td style="padding: 8px;">Rp ${totalBudgetCost.toLocaleString("id-ID")}</td></tr>
+              <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px; font-weight: bold;">Pimpinan Proyek</td><td style="padding: 8px;">${studentName} (NIM: ${studentNIM})</td></tr>
+            </table>
+          </div>
+        `;
+      } else if (ch.interactiveComponent === "wbs") {
+        componentHTML = `
+          <div style="margin-top: 15px; font-size: 13px;">
+            <ul style="list-style-type: none; padding-left: 0;">
+              <li style="font-weight: bold; margin-top: 5px;">1. Proyek Sistem Informasi Pengaduan Layanan Kampus</li>
+              <ul style="list-style-type: none;">
+                <li>1.1 Inisiasi Proyek (Identifikasi Masalah, Penyusunan Project Charter)</li>
+                <li>1.2 Analisis Kebutuhan (Identifikasi Stakeholder, SRS Dokumen)</li>
+                <li>1.3 Perancangan Sistem (Database ERD, Mockup UI/UX)</li>
+                <li>1.4 Pengembangan Sistem (Login, Form Aduan, Verifikasi, Dashboard)</li>
+                <li>1.5 Pengujian Sistem (Uji Coba Fungsional, Integrasi, Validasi)</li>
+                <li>1.6 Evaluasi & Penutupan (Penyusunan Laporan Akhir, Presentasi)</li>
+              </ul>
+            </ul>
+          </div>
+        `;
+      } else if (ch.interactiveComponent === "gantt") {
+        componentHTML = `
+          <div style="margin-top: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
+              <thead>
+                <tr style="background-color: #f5f5f5;">
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Aktivitas Utama</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M1</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M2</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M3</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M4</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M5</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M6</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M7</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">M8</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ganttTasks.map(t => `
+                  <tr>
+                    <td style="border: 1px solid #ddd; padding: 6px;">${t.name} (${t.progress}%)</td>
+                    ${Array.from({ length: 8 }, (_, i) => {
+                      const week = i + 1;
+                      const active = week >= t.startWeek && week <= t.endWeek;
+                      return `<td style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: ${active ? '#ccf2f4' : 'transparent'};">${active ? '■' : ''}</td>`;
+                    }).join("")}
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } else if (ch.interactiveComponent === "resources") {
+        componentHTML = `
+          <div style="margin-top: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
+              <thead>
+                <tr style="background-color: #f5f5f5;">
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; width: 30%;">Peran</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; width: 30%;">Nama Anggota</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Tanggung Jawab Utama</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${projectMembers.map((m, i) => `
+                  <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">${m.role}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">${i === 0 ? studentName : m.name}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">${m.responsibilities.join("<br/>")}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } else if (ch.interactiveComponent === "budget") {
+        componentHTML = `
+          <div style="margin-top: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
+              <thead>
+                <tr style="background-color: #f5f5f5;">
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Komponen Pengeluaran</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: right; width: 25%;">Biaya Realistis</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${budgetItems.map(item => `
+                  <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">${item.component}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">Rp ${item.cost.toLocaleString("id-ID")}</td>
+                  </tr>
+                `).join("")}
+                <tr style="background-color: #f5f5f5; font-weight: bold;">
+                  <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">Total Estimasi Anggaran (RAB)</td>
+                  <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">Rp ${totalBudgetCost.toLocaleString("id-ID")}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+      } else if (ch.interactiveComponent === "risks") {
+        componentHTML = `
+          <div style="margin-top: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #ddd;">
+              <thead>
+                <tr style="background-color: #f5f5f5;">
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Nama Risiko Potensial</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center; width: 15%;">Dampak</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: center; width: 15%;">Probabilitas</th>
+                  <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Rencana Mitigasi Konkret</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${risks.map(r => `
+                  <tr>
+                    <td style="border: 1px solid #ddd; padding: 6px;">${r.name}</td>
+                    <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${r.impact}</td>
+                    <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${r.probability}</td>
+                    <td style="border: 1px solid #ddd; padding: 6px;">${r.mitigation}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } else if (ch.interactiveComponent === "tests") {
+        componentHTML = `
+          <div style="margin-top: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
+              <thead>
+                <tr style="background-color: #f5f5f5;">
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; width: 25%;">Modul</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; width: 35%;">Skenario Pengujian</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Hasil yang Diharapkan</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${testSuite.map(t => `
+                  <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">${t.module}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">${t.scenario}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">${t.expected}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      // Convert simple markdown headings to clean basic HTML
+      let formattedText = getCustomizedContent(ch.content)
+        .replace(/### (.*)/g, "<h3 style='color: #0d9488; margin-top: 20px; border-bottom: 1px solid #eee; padding-bottom: 4px;'>$1</h3>")
+        .replace(/## (.*)/g, "<h2 style='color: #0f172a; margin-top: 25px; margin-bottom: 10px;'>$1</h2>")
+        .replace(/1\. (.*)/g, "<li>$1</li>")
+        .replace(/- \*\*(.*?)\*\*: (.*)/g, "<li><strong>$1</strong>: $2</li>");
+
+      return `
+        <div style="page-break-after: always; margin-bottom: 40px;">
+          <h2 style="color: #0f172a; border-bottom: 2px solid #0d9488; padding-bottom: 8px; font-size: 20px; font-family: 'Inter', sans-serif;">
+            ${ch.sectionCode} - ${ch.title}
+          </h2>
+          <div style="line-height: 1.6; font-size: 13.5px; color: #334155;">
+            ${formattedText}
+          </div>
+          ${componentHTML}
+        </div>
+      `;
+    }).join("");
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Laporan Akhir Tugas Besar - Manajemen Proyek Perangkat Lunak</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+            body {
+              font-family: 'Inter', sans-serif;
+              color: #1e293b;
+              margin: 40px;
+              line-height: 1.6;
+            }
+            h1, h2, h3, h4 {
+              font-family: 'Inter', sans-serif;
+              font-weight: 600;
+            }
+            .cover-page {
+              height: 100vh;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              text-align: center;
+              padding: 40px;
+              box-sizing: border-box;
+              page-break-after: always;
+            }
+            .cover-title {
+              font-size: 26px;
+              font-weight: 700;
+              margin-top: 100px;
+              color: #0f172a;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .cover-subtitle {
+              font-size: 16px;
+              color: #475569;
+              margin-top: 15px;
+            }
+            .cover-meta {
+              font-size: 14px;
+              margin-bottom: 100px;
+              color: #334155;
+              line-height: 2;
+            }
+          </style>
+        </head>
+        <body>
+          <!-- Cover Page -->
+          <div class="cover-page">
+            <div>
+              <div class="cover-title">LAPORAN AKHIR TUGAS BESAR<br/>MANAJEMEN PROYEK PERANGKAT LUNAK</div>
+              <div style="font-size: 18px; font-weight: 600; color: #0d9488; margin-top: 25px;">
+                RANCANGAN PENGEMBANGAN SISTEM INFORMASI<br/>PENGADUAN LAYANAN KAMPUS (SIPELAK)
+              </div>
+            </div>
+            
+            <div class="cover-meta">
+              <strong>Disusun Oleh:</strong><br/>
+              Nama: ${studentName}<br/>
+              NIM: ${studentNIM}<br/>
+              Kelas: ${studentClass}<br/>
+              Instansi: ${univName}<br/>
+              Tahun Akademik: 2026/2027
+            </div>
+          </div>
+
+          <!-- Document Content -->
+          ${compiledChaptersHTML}
+
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  return (
+    <div className="space-y-6">
+      
+      {/* AI & Profile Customization panel */}
+      <div className="bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-100 p-5 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-5 h-5 text-teal-600 fill-teal-100" />
+            <h3 className="font-bold text-slate-800 text-sm md:text-base">Kustomisasi Dokumen UAS Otomatis (AI-Powered)</h3>
+          </div>
+          <button
+            onClick={handlePrintReport}
+            className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md shadow-teal-600/10"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Cetak Laporan UAS</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Nama Kampus</label>
+            <input 
+              type="text" 
+              value={univName} 
+              onChange={(e) => setUnivName(e.target.value)} 
+              className="w-full text-xs border border-teal-200 bg-white rounded-lg px-3 py-2 font-semibold focus:outline-hidden focus:ring-1 focus:ring-teal-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Nama Mahasiswa</label>
+            <input 
+              type="text" 
+              value={studentName} 
+              onChange={(e) => setStudentName(e.target.value)} 
+              className="w-full text-xs border border-teal-200 bg-white rounded-lg px-3 py-2 font-semibold focus:outline-hidden focus:ring-1 focus:ring-teal-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">NIM Mahasiswa</label>
+            <input 
+              type="text" 
+              value={studentNIM} 
+              onChange={(e) => setStudentNIM(e.target.value)} 
+              className="w-full text-xs border border-teal-200 bg-white rounded-lg px-3 py-2 font-semibold focus:outline-hidden focus:ring-1 focus:ring-teal-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Mata Kuliah / Kelas</label>
+            <input 
+              type="text" 
+              value={studentClass} 
+              onChange={(e) => setStudentClass(e.target.value)} 
+              className="w-full text-xs border border-teal-200 bg-white rounded-lg px-3 py-2 font-semibold focus:outline-hidden focus:ring-1 focus:ring-teal-500"
+            />
+          </div>
+        </div>
+
+        {/* AI custom prompt input */}
+        <div className="flex gap-2 items-center border-t border-teal-100/60 pt-3">
+          <input 
+            type="text"
+            value={customPrompt}
+            onChange={(e) => setCustomPrompt(e.target.value)}
+            placeholder="Tulis instruksi tambahan untuk kustomisasi bab terpilih via AI (misal: 'buat lebih akademis dan fokus pada fak. teknik')"
+            className="flex-1 text-xs border border-teal-200 bg-white rounded-xl px-4 py-2.5 focus:outline-hidden focus:ring-1 focus:ring-teal-500"
+            disabled={generatingSection}
+          />
+          <button
+            onClick={handleAICustomize}
+            disabled={generatingSection}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shrink-0 shadow-sm disabled:opacity-50"
+          >
+            {generatingSection ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            <span>Regenerasi Bab dengan Gemini AI</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Chapter View Port */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        {/* Left Navigator (Struktur Laporan) */}
+        <div className="lg:col-span-1 bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-1.5 max-h-[550px] overflow-y-auto">
+          <span className="text-[10px] font-extrabold text-slate-400 block px-2.5 mb-2 uppercase tracking-wider">STRUKTUR LAPORAN (BAB 1 - 12)</span>
+          {chapters.map((ch, idx) => (
+            <button
+              key={ch.id}
+              onClick={() => {
+                setActiveChapterIndex(idx);
+                onAddLog(`Mahasiswa membuka dokumen bab: ${ch.sectionCode} - ${ch.title}`);
+              }}
+              className={`w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-left transition-all ${
+                activeChapterIndex === idx
+                  ? "bg-teal-600 text-white shadow-md shadow-teal-600/10 scale-[1.02]"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`}
+            >
+              <div className={`w-6 h-6 rounded-lg font-bold text-[10px] font-mono flex items-center justify-center shrink-0 ${
+                activeChapterIndex === idx ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+              }`}>
+                {idx + 1}
+              </div>
+              <div className="truncate">
+                <span className="block text-[9px] opacity-75 font-mono uppercase">{ch.sectionCode}</span>
+                <span className="block truncate font-medium text-[11px]">{ch.title}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Right Chapter Display & Interactive Simulator */}
+        <div className="lg:col-span-3 space-y-6">
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-6">
+            
+            {/* Header info */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <span className="text-[10px] font-mono font-bold bg-teal-50 text-teal-700 px-2 py-0.5 rounded-md uppercase tracking-wider">{chapters[activeChapterIndex].sectionCode}</span>
+                <h2 className="text-lg md:text-xl font-bold text-slate-900 mt-1">{chapters[activeChapterIndex].title}</h2>
+              </div>
+              <span className="text-[11px] font-medium text-slate-400 font-mono">Status: Ready to Print</span>
+            </div>
+
+            {/* Document markdown rendering */}
+            <div className="text-slate-700 text-xs md:text-sm leading-relaxed space-y-4 whitespace-pre-line border-b border-slate-100 pb-6">
+              {getCustomizedContent(chapters[activeChapterIndex].content)}
+            </div>
+
+            {/* Interactive Section if applicable */}
+            {chapters[activeChapterIndex].interactiveComponent && (
+              <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center space-x-2">
+                  <Clipboard className="w-4 h-4 text-teal-600" />
+                  <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Interactive Simulator & Live Data Editor</h4>
+                </div>
+
+                {/* Chapter 3 Charter Simulator */}
+                {chapters[activeChapterIndex].interactiveComponent === "charter" && (
+                  <div className="bg-white rounded-xl border border-slate-200/60 overflow-hidden shadow-2xs">
+                    <div className="bg-slate-900 text-white px-4 py-3 font-mono text-[11px] font-bold tracking-wider uppercase">Project Charter Formal</div>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <strong className="block text-slate-500 mb-1">Nama Proyek:</strong>
+                        <span className="font-semibold text-slate-900">Sistem Informasi Pengaduan Layanan Kampus</span>
+                      </div>
+                      <div>
+                        <strong className="block text-slate-500 mb-1">Organisasi Kampus:</strong>
+                        <span className="font-semibold text-slate-900">{univName}</span>
+                      </div>
+                      <div>
+                        <strong className="block text-slate-500 mb-1">Durasi Proyek:</strong>
+                        <span className="font-semibold text-slate-900">8 Minggu (Simulasi Berkelanjutan)</span>
+                      </div>
+                      <div>
+                        <strong className="block text-slate-500 mb-1">Sponsor Utama:</strong>
+                        <span className="font-semibold text-slate-900">Wakil Rektor Bidang Sarana & Prasarana</span>
+                      </div>
+                      <div className="md:col-span-2 border-t border-slate-100 pt-3">
+                        <strong className="block text-slate-500 mb-1">Pimpinan Proyek (Project Manager):</strong>
+                        <span className="font-semibold text-slate-900">{studentName} (NIM: {studentNIM})</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Chapter 4 WBS Interactive tree */}
+                {chapters[activeChapterIndex].interactiveComponent === "wbs" && (
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between items-center mb-1 text-[10px] text-slate-400 font-mono font-bold uppercase">
+                      <span>WBS Level</span>
+                      <span>Deliverables / Aktivitas</span>
+                    </div>
+                    {[
+                      { level: "1", code: "1", title: "Proyek Sistem Informasi Pengaduan Layanan Kampus", desc: "Keseluruhan siklus hidup proyek penanganan keluhan" },
+                      { level: "1.1", code: "1.1", title: "Inisiasi Proyek", desc: "Masalah, tujuan, Project Charter" },
+                      { level: "1.1.1", code: "1.1.1", title: "Identifikasi masalah layanan kampus", desc: "Studi kelayakan konvensional" },
+                      { level: "1.1.3", code: "1.1.3", title: "Penyusunan Project Charter", desc: "Sign-off formal dari rektorat" },
+                      { level: "1.2", code: "1.2", title: "Analisis Kebutuhan", desc: "Spesifikasi SRS" },
+                      { level: "1.2.2", code: "1.2.2", title: "Penyusunan kebutuhan fungsional & non-fungsional", desc: "Matrix prioritas" },
+                      { level: "1.3", code: "1.3", title: "Perancangan Sistem", desc: "ERD & Figma design" },
+                      { level: "1.3.1", code: "1.3.1", title: "Perancangan alur pengaduan & database", desc: "Skema relasional" },
+                      { level: "1.4", code: "1.4", title: "Pengembangan Sistem", desc: "Fase coding utama" },
+                      { level: "1.4.1", code: "1.4.1", title: "Modul login & form pengaduan", desc: "Penulisan fungsionalitas" },
+                      { level: "1.4.5", code: "1.4.5", title: "Modul dashboard & laporan pimpinan", desc: "Representasi statistik" },
+                      { level: "1.5", code: "1.5", title: "Pengujian Sistem", desc: "Quality assurance" },
+                      { level: "1.5.2", code: "1.5.2", title: "Pengujian input pengaduan & perubahan status", desc: "Test Case fungsional" },
+                      { level: "1.6", code: "1.6", title: "Evaluasi dan Penutupan", desc: "Serah terima final" },
+                    ].map((wbs, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`p-3 rounded-lg border bg-white flex items-center justify-between ${
+                          wbs.level.length === 1 ? "border-teal-200 pl-3 font-bold" :
+                          wbs.level.length === 3 ? "border-slate-200 pl-6" : "border-slate-100 pl-10"
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono text-xs font-bold text-teal-600 shrink-0">{wbs.code}</span>
+                          <div>
+                            <span className="font-medium text-slate-800">{wbs.title}</span>
+                            <span className="block text-[10px] text-slate-400 font-normal">{wbs.desc}</span>
+                          </div>
+                        </div>
+                        <Check className="w-4 h-4 text-teal-600" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Chapter 5 Gantt Chart */}
+                {chapters[activeChapterIndex].interactiveComponent === "gantt" && (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500">Sesuaikan kemajuan tugas (%) menggunakan slider di bawah untuk mensimulasikan dinamika proyek:</p>
+                    <div className="space-y-3 bg-white border border-slate-200 rounded-xl p-4 shadow-2xs">
+                      {ganttTasks.map((t) => (
+                        <div key={t.id} className="grid grid-cols-1 md:grid-cols-3 items-center gap-4 text-xs">
+                          <div className="font-medium text-slate-700">{t.name}</div>
+                          
+                          {/* Slider progress */}
+                          <div className="flex items-center space-x-2">
+                            <input 
+                              type="range" 
+                              min="0" 
+                              max="100" 
+                              value={t.progress} 
+                              onChange={(e) => handleGanttProgressChange(t.id, parseInt(e.target.value))}
+                              className="w-full accent-teal-600"
+                            />
+                            <span className="font-mono font-bold w-10 text-right">{t.progress}%</span>
+                          </div>
+
+                          {/* Visual Gantt Bar */}
+                          <div className="h-6 bg-slate-100 rounded-lg relative overflow-hidden flex items-center px-1">
+                            {/* Fill range */}
+                            <div 
+                              className="absolute top-0 bottom-0 bg-teal-500/25 border-y border-teal-400/50"
+                              style={{
+                                left: `${((t.startWeek - 1) / 8) * 100}%`,
+                                width: `${((t.endWeek - t.startWeek + 1) / 8) * 100}%`
+                              }}
+                            />
+                            {/* Inner complete bar */}
+                            <div 
+                              className="absolute top-1 bottom-1 bg-teal-600 rounded-md"
+                              style={{
+                                left: `${((t.startWeek - 1) / 8) * 100}%`,
+                                width: `${(((t.endWeek - t.startWeek + 1) / 8) * 100) * (t.progress / 100)}%`
+                              }}
+                            />
+                            <span className="relative z-10 text-[9px] font-mono font-bold text-teal-800 uppercase px-1">
+                              W{t.startWeek}-W{t.endWeek} [{t.resources.join(",")}]
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Chapter 6 Resources */}
+                {chapters[activeChapterIndex].interactiveComponent === "resources" && (
+                  <div className="space-y-3">
+                    {projectMembers.map((member, i) => (
+                      <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-start justify-between gap-4 text-xs shadow-2xs">
+                        <div className="space-y-1">
+                          <h5 className="font-bold text-slate-800 font-mono">{member.role}</h5>
+                          <p className="text-slate-600 font-semibold">{i === 0 ? studentName + " (NIM: " + studentNIM + ")" : member.name}</p>
+                        </div>
+                        <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1 md:w-2/3 leading-relaxed">
+                          {member.responsibilities.map((res, rid) => (
+                            <li key={rid}>{res}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Chapter 7 Budget Editor */}
+                {chapters[activeChapterIndex].interactiveComponent === "budget" && (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500">Kustomisasi anggaran masing-masing bab untuk disimulasikan ke pengawas. Nilai default total persis **Rp9.000.000**:</p>
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs text-xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                            <th className="p-3">Komponen Biaya</th>
+                            <th className="p-3 text-right w-1/3">Alokasi Biaya (Rupiah)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {budgetItems.map(item => (
+                            <tr key={item.id} className="hover:bg-slate-50/50">
+                              <td className="p-3 font-medium text-slate-700">{item.component}</td>
+                              <td className="p-3 text-right">
+                                <div className="flex items-center justify-end space-x-1">
+                                  <span className="text-slate-400 font-mono">Rp</span>
+                                  <input 
+                                    type="number" 
+                                    value={item.cost} 
+                                    onChange={(e) => handleBudgetCostChange(item.id, parseInt(e.target.value) || 0)}
+                                    className="w-28 text-right bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 font-mono font-bold"
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="bg-teal-50 font-bold border-t border-slate-200">
+                            <td className="p-3 text-right text-teal-800">Total Anggaran Proyek (RAB)</td>
+                            <td className="p-3 text-right text-teal-900 font-mono font-bold text-sm">
+                              Rp {totalBudgetCost.toLocaleString("id-ID")}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Chapter 8 Trello Simulator */}
+                {chapters[activeChapterIndex].interactiveComponent === "trello" && (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500">Gunakan panah navigasi pada kartu Trello untuk memindahkan status pengerjaan tugas secara real-time:</p>
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                      {(["Backlog", "To Do", "In Progress", "Review/Testing", "Done"] as const).map(column => {
+                        const colCards = trelloCards.filter(c => c.status === column);
+                        return (
+                          <div key={column} className="bg-slate-100 border border-slate-200/50 rounded-xl p-2 flex flex-col min-h-[300px]">
+                            <div className="flex items-center justify-between mb-2 px-1">
+                              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider font-mono">{column}</span>
+                              <span className="bg-slate-200 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full font-mono">{colCards.length}</span>
+                            </div>
+
+                            {/* Cards area */}
+                            <div className="flex-1 space-y-2.5 overflow-y-auto max-h-[400px]">
+                              {colCards.map(card => (
+                                <div key={card.id} className="bg-white border border-slate-200/80 rounded-lg p-3 shadow-2xs space-y-2 text-xs">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[8px] font-mono font-bold text-slate-400">{card.id}</span>
+                                    <span className={`px-1.5 py-0.5 rounded-sm text-[8px] font-bold ${
+                                      card.label.includes("Tinggi") ? "bg-red-50 text-red-600" :
+                                      card.label.includes("Sedang") ? "bg-amber-50 text-amber-600" :
+                                      "bg-slate-100 text-slate-500"
+                                    }`}>
+                                      {card.label}
+                                    </span>
+                                  </div>
+                                  <h6 className="font-bold text-slate-800 text-[11px] leading-snug">{card.name}</h6>
+                                  <p className="text-[9px] text-slate-400 line-clamp-2 leading-relaxed">{card.description}</p>
+                                  
+                                  {/* Checklist status */}
+                                  {card.checklist.length > 0 && (
+                                    <div className="border-t border-slate-100 pt-1.5 space-y-1">
+                                      {card.checklist.map((item, idx) => (
+                                        <label key={idx} className="flex items-center space-x-1.5 cursor-pointer text-[9px] text-slate-500 hover:text-slate-800">
+                                          <input 
+                                            type="checkbox" 
+                                            checked={item.done} 
+                                            onChange={() => handleToggleTrelloCheck(card.id, idx)}
+                                            className="w-2.5 h-2.5 text-teal-600"
+                                          />
+                                          <span className={item.done ? "line-through text-slate-400" : ""}>{item.text}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  <div className="border-t border-slate-50 pt-1.5 flex items-center justify-between text-[8px] font-bold text-slate-400">
+                                    <span>PIC: {card.pic}</span>
+                                    <span>{card.dueDate}</span>
+                                  </div>
+
+                                  {/* Move triggers */}
+                                  <div className="flex items-center justify-between border-t border-slate-50 pt-1">
+                                    <button 
+                                      onClick={() => handleMoveTrelloCard(card.id, "prev")}
+                                      className="p-1 hover:bg-slate-100 rounded-sm text-slate-400 hover:text-slate-800"
+                                      disabled={column === "Backlog"}
+                                    >
+                                      <ArrowLeft className="w-3 h-3" />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleMoveTrelloCard(card.id, "next")}
+                                      className="p-1 hover:bg-slate-100 rounded-sm text-slate-400 hover:text-slate-800"
+                                      disabled={column === "Done"}
+                                    >
+                                      <ArrowRight className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Chapter 9 Risks Matrix */}
+                {chapters[activeChapterIndex].interactiveComponent === "risks" && (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500">Sesuaikan tingkat dampak dan mitigasi risiko proyek untuk draf analisis akademis Anda:</p>
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs text-xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                            <th className="p-3 w-1/3">Nama Risiko</th>
+                            <th className="p-3 text-center">Dampak</th>
+                            <th className="p-3 text-center">Probabilitas</th>
+                            <th className="p-3">Strategi Mitigasi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {risks.map(r => (
+                            <tr key={r.id} className="hover:bg-slate-50/50">
+                              <td className="p-3 font-semibold text-slate-800">{r.name}</td>
+                              <td className="p-3 text-center">
+                                <select 
+                                  value={r.impact}
+                                  onChange={(e) => handleRiskChange(r.id, "impact", e.target.value)}
+                                  className={`border border-slate-200 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                    r.impact === "Tinggi" ? "text-red-600 bg-red-50" :
+                                    r.impact === "Sedang" ? "text-amber-600 bg-amber-50" : "text-slate-500"
+                                  }`}
+                                >
+                                  <option value="Tinggi">Tinggi</option>
+                                  <option value="Sedang">Sedang</option>
+                                  <option value="Rendah">Rendah</option>
+                                </select>
+                              </td>
+                              <td className="p-3 text-center">
+                                <select 
+                                  value={r.probability}
+                                  onChange={(e) => handleRiskChange(r.id, "probability", e.target.value)}
+                                  className={`border border-slate-200 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                    r.probability === "Tinggi" ? "text-red-600 bg-red-50" :
+                                    r.probability === "Sedang" ? "text-amber-600 bg-amber-50" : "text-slate-500"
+                                  }`}
+                                >
+                                  <option value="Tinggi">Tinggi</option>
+                                  <option value="Sedang">Sedang</option>
+                                  <option value="Rendah">Rendah</option>
+                                </select>
+                              </td>
+                              <td className="p-3">
+                                <input 
+                                  type="text" 
+                                  value={r.mitigation}
+                                  onChange={(e) => handleRiskChange(r.id, "mitigation", e.target.value)}
+                                  className="w-full border border-slate-200 rounded px-2 py-1 text-[11px]"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Chapter 11 Tests Simulator */}
+                {chapters[activeChapterIndex].interactiveComponent === "tests" && (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500">Klik tombol uji di samping kanan untuk menyimulasikan QA testing pada masing-masing modul:</p>
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs text-xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                            <th className="p-3 w-1/4">Modul Pengujian</th>
+                            <th className="p-3">Skenario Uji</th>
+                            <th className="p-3 w-1/5 text-center">Status Tes</th>
+                            <th className="p-3 w-20 text-center">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {testSuite.map((test, index) => (
+                            <tr key={test.id} className="hover:bg-slate-50/50">
+                              <td className="p-3 font-bold text-slate-800">{test.module}</td>
+                              <td className="p-3">
+                                <span className="block font-medium text-slate-700">{test.scenario}</span>
+                                <span className="block text-[10px] text-slate-400 mt-1 italic">Expected: {test.expected}</span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                  test.status === "PASS" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                                  test.status === "FAIL" ? "bg-red-50 text-red-700 border border-red-100" :
+                                  "bg-slate-100 text-slate-500"
+                                }`}>
+                                  {test.status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <button
+                                  onClick={() => {
+                                    setTestSuite(prev => prev.map((item, idx) => {
+                                      if (idx === index) {
+                                        return { ...item, status: "PASS" };
+                                      }
+                                      return item;
+                                    }));
+                                    onAddLog(`Skenario uji QA dijalankan pada modul: ${test.module} [PASS]`);
+                                  }}
+                                  className="bg-teal-600 hover:bg-teal-700 text-white px-2 py-1 rounded-md text-[10px] font-bold"
+                                >
+                                  Run Test
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* Pagination navigator buttons */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+              <button
+                disabled={activeChapterIndex === 0}
+                onClick={() => {
+                  setActiveChapterIndex(prev => prev - 1);
+                  onAddLog(`Mahasiswa bernavigasi ke bab sebelumnya`);
+                }}
+                className="flex items-center space-x-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold disabled:opacity-40"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Sebelumnya</span>
+              </button>
+
+              <span className="text-xs text-slate-400 font-mono">Bab {activeChapterIndex + 1} dari {chapters.length}</span>
+
+              <button
+                disabled={activeChapterIndex === chapters.length - 1}
+                onClick={() => {
+                  setActiveChapterIndex(prev => prev + 1);
+                  onAddLog(`Mahasiswa bernavigasi ke bab berikutnya`);
+                }}
+                className="flex items-center space-x-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold disabled:opacity-40"
+              >
+                <span>Selanjutnya</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  );
+}

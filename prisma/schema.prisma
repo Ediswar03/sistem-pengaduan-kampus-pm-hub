@@ -1,0 +1,116 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MAHASISWA
+  ADMIN
+  PETUGAS
+  PIMPINAN
+}
+
+enum ComplaintStatus {
+  DIAJUKAN
+  DIVERIFIKASI
+  DIPROSES
+  SELESAI
+  DITOLAK
+}
+
+enum Priority {
+  RENDAH
+  SEDANG
+  TINGGI
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("MAHASISWA") // SQLite doesn't fully support enums natively but Prisma handles it or we can use String
+  unitId    Int?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+  
+  // Relations
+  complaintsSubmitted Complaint[] @relation("StudentComplaints")
+  complaintsAssigned  Complaint[] @relation("AssignedComplaints")
+  comments            Comment[]
+  notifications       Notification[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Unit {
+  id          Int         @id @default(autoincrement())
+  name        String
+  users       User[]
+  complaints  Complaint[]
+}
+
+model Category {
+  id          Int         @id @default(autoincrement())
+  name        String
+  description String?
+  complaints  Complaint[]
+}
+
+model Complaint {
+  id             Int       @id @default(autoincrement())
+  title          String
+  description    String
+  location       String
+  attachmentUrl  String?
+  status         String    @default("DIAJUKAN")
+  priority       String?
+  
+  categoryId     Int
+  category       Category  @relation(fields: [categoryId], references: [id])
+  
+  studentId      Int
+  student        User      @relation("StudentComplaints", fields: [studentId], references: [id])
+  
+  assigneeId     Int?
+  assignee       User?     @relation("AssignedComplaints", fields: [assigneeId], references: [id])
+  
+  unitId         Int?
+  unit           Unit?     @relation(fields: [unitId], references: [id])
+  
+  comments       Comment[]
+  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Comment {
+  id          Int       @id @default(autoincrement())
+  content     String
+  
+  complaintId Int
+  complaint   Complaint @relation(fields: [complaintId], references: [id])
+  
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  
+  createdAt   DateTime  @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  message   String
+  isRead    Boolean  @default(false)
+  
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+}

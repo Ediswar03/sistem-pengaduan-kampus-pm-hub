@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Pengaduan Kampus & PM Hub",
+  "description": "Sistem Informasi Pengaduan Layanan Kampus (SIPELAK) dilengkapi Dashboard Manajemen Proyek (PM Hub) interaktif, simulator Trello, Gantt chart, serta FAQ Chatbot AI untuk penyusunan Laporan Proyek Akhir.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
